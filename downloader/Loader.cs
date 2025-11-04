@@ -45,7 +45,7 @@ public class Loader : ILoader
         
         var pathToFile = $"{folderToSave}/{_resourceName}{ResourceExtension}";
         
-        await using FileStream destination = new FileStream(pathToFile, FileMode.OpenOrCreate);
+        await using FileStream destination = new FileStream(pathToFile, FileMode.Create);
         while (true)
         {
             try
@@ -53,7 +53,7 @@ public class Loader : ILoader
                 await using var source = await _client.GetStreamAsync(_lastUri);
                 await source.CopyToAsync(destination);
                 
-                _logger.LogInformation(@"Part {_currentPartNumber} was downloaded to ""{pathToFile}""", _currentPartNumber, pathToFile);
+                _logger.LogInformation(@"Part {partNumber} was downloaded to ""{pathToFile}""", _currentPartNumber, pathToFile);
 
                 if (IsLastPart)
                 {
