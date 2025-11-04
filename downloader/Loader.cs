@@ -11,6 +11,7 @@ public class Loader : ILoader
     private const string ResourceExtension = ".ts";
 
     private int _retries = 0;
+    private (DateTime Start, DateTime End) _totalRequestTime;
     
     private readonly HttpClient _client;
     private readonly ILogger<Loader> _logger;
@@ -38,6 +39,8 @@ public class Loader : ILoader
 
     public async Task DownloadAsync(string folderToSave)
     {
+        _totalRequestTime.Start = DateTime.Now;
+        
         CreateDirectoryIfNotExists(folderToSave);
         
         var pathToFile = $"{folderToSave}/{_resourceName}{ResourceExtension}";
@@ -54,7 +57,14 @@ public class Loader : ILoader
 
                 if (IsLastPart)
                 {
-                    _logger.LogInformation(@"Resource ""{_resourceName}"" was downloaded to ""{pathToFile}""", _resourceName, pathToFile);
+                    _totalRequestTime.End = DateTime.Now;
+                    
+                    var fileInfo = new FileInfo(pathToFile);
+                    var duration = _totalRequestTime.End - _totalRequestTime.Start;
+                    
+                    _logger.LogInformation(@"Resource ""{resourceName}"" was downloaded to ""{pathToFile}"". Resource size = {size} bytes; Total request duration = {duration}",
+                        _resourceName, fileInfo.FullName, fileInfo.Length, duration);
+                        
                     return;
                 }
             
