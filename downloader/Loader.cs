@@ -11,19 +11,25 @@ public class Loader : ILoader
     private const string ResourceExtension = ".ts";
 
     private int _retries = 0;
+    
     private readonly HttpClient _client;
     private readonly ILogger<Loader> _logger;
+    
     private readonly string _resourceName;
     private readonly int _finalPartNumber;
     private Uri _lastUri;
     private int _currentPartNumber;
+    private int _numberOfSymbols;
 
     private bool IsLastPart => _currentPartNumber == _finalPartNumber;
     
-    public Loader(HttpClient client, string resourceName, int finalPart, string initialUri, IServiceProvider services)
+    public Loader(string resourceName, int finalPart, string initialUri, IServiceProvider services)
     {
-        _client = client;
+        _client = services.GetRequiredService<IHttpClientFactory>()
+            .CreateClient();
+        
         _logger = services.GetService<ILogger<Loader>>() ?? new NullLogger<Loader>();
+        
         _resourceName = resourceName;
         _finalPartNumber = finalPart;
         _lastUri = new Uri(initialUri);
@@ -32,8 +38,7 @@ public class Loader : ILoader
 
     public async Task DownloadAsync(string folderToSave)
     {
-        if (!Directory.Exists(folderToSave))
-            Directory.CreateDirectory(folderToSave);
+        CreateDirectoryIfNotExists(folderToSave);
         
         var pathToFile = $"{folderToSave}/{_resourceName}{ResourceExtension}";
         
@@ -88,13 +93,15 @@ public class Loader : ILoader
     private string IncrementPartNumber(string part)
     {
         var oldNumberString = ExtractNumberFromString(part);
-        var numberOfSymbols = oldNumberString.Length;
+        
+        if (_numberOfSymbols == 0)
+            _numberOfSymbols = oldNumberString.Length;
         
         var currentNumber = ParseNumberFromString(oldNumberString);
         var nextNumber = currentNumber + 1;
         _currentPartNumber = nextNumber;
         
-        var resultString = nextNumber.ToString().PadLeft(numberOfSymbols, '0');
+        var resultString = nextNumber.ToString().PadLeft(_numberOfSymbols, '0');
         
         return part.Replace(oldNumberString + ResourceExtension, resultString + ResourceExtension);
     }
@@ -104,10 +111,15 @@ public class Loader : ILoader
         var path = uri.AbsolutePath;
         var partNumberString = GetLastPartOfPath(path);
         partNumberString = ExtractNumberFromString(partNumberString);
-        
         var partNumber = ParseNumberFromString(partNumberString);
 
         return partNumber;
+    }
+
+    private void CreateDirectoryIfNotExists(string folderToSave)
+    {
+        if (!Directory.Exists(folderToSave))
+            Directory.CreateDirectory(folderToSave);
     }
 
     private string GetLastPartOfPath(string path)
