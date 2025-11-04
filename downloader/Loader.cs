@@ -35,7 +35,7 @@ public class Loader : ILoader
         if (!Directory.Exists(folderToSave))
             Directory.CreateDirectory(folderToSave);
         
-        var pathToFile = $"{folderToSave}/{_resourceName}.ts";
+        var pathToFile = $"{folderToSave}/{_resourceName}{ResourceExtension}";
         
         await using FileStream destination = new FileStream(pathToFile, FileMode.OpenOrCreate);
         while (true)
@@ -57,15 +57,14 @@ public class Loader : ILoader
                 
                 _retries = 0;
             }
-            catch (HttpRequestException e) when (e.StatusCode is HttpStatusCode.NotFound)
+            catch (HttpRequestException)
             {
                 if (_retries >= 3)
-                {
-                    _logger.LogError("End of resource reached.");
-                    return;
-                }
+                    throw;
 
                 _retries++;
+                
+                await Task.Delay(3000);
             }
         }
     }
