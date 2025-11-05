@@ -53,7 +53,7 @@ public class Loader : ILoader
                 await using var source = await _client.GetStreamAsync(_lastUri);
                 await source.CopyToAsync(destination);
                 
-                _logger.LogInformation(@"Part {partNumber} was downloaded to ""{pathToFile}""", _currentPartNumber, pathToFile);
+                _logger.LogInformation(@"Part {partNumber}/{totalParts} was downloaded to ""{pathToFile}""", _currentPartNumber, _finalPartNumber, pathToFile);
 
                 if (IsLastPart)
                 {

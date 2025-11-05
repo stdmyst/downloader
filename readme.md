@@ -1,5 +1,14 @@
-Run:
+Build:
 
-- `donet build`
+```powershell
+donet build
+```
 
-- `dotnet "...\downloader.dll" " ---> File name <---- " 328 " ----> Uri <---- "`
+Run with arguments:
+
+```powershell
+dotnet "...\downloader.dll" `
+    " ---> File name <---- " `
+    328 `
+    " ----> Uri <---- "
+```
