@@ -1,4 +1,5 @@
-﻿using downloader;
+﻿using System.Text.Json;
+using downloader;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -7,7 +8,15 @@ services.AddLogging(builder => builder.AddConsole());
 services.AddHttpClient();
 var provider = services.BuildServiceProvider();
 
-(string Name, int FinalPartNumber, string Uri) @params = (args[0],  int.Parse(args[1]), args[2]);
+var paramsPath = args[0];
+var folderToSave = args[1];
+var @params = JsonSerializer.Deserialize<List<DownloadParams>>(File.ReadAllText(paramsPath));
 
-var loader = new Loader(@params.Name, @params.FinalPartNumber, @params.Uri, provider);
-await loader.DownloadAsync("output");
+if (@params == null)
+    return;
+
+foreach (var param in @params)
+{
+    var loader = new Loader(param.Name, param.Uri, param.ChunkNumberSeparator, provider);
+    await loader.DownloadAsync(folderToSave);
+}

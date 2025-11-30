@@ -5,138 +5,102 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace downloader;
 
-public class Loader : ILoader
+public class Loader(
+    string resourceName,
+    string initialUri,
+    char chunkNumberSeparator,
+    IServiceProvider services,
+    string resourceExtension = ".ts",
+    bool withChunkNumberPadding = false)
+    : ILoader
 {
-    private const char NumberSeparator = '_';
-    private const string ResourceExtension = ".ts";
-
-    private int _retries = 0;
+    private const ushort MaxRetries = 3;
+    private const int DelayMs = 3000;
+    
+    private int _retries;
     private (DateTime Start, DateTime End) _totalRequestTime;
+    private readonly HttpClient _client = services
+        .GetRequiredService<IHttpClientFactory>()
+        .CreateClient();
     
-    private readonly HttpClient _client;
-    private readonly ILogger<Loader> _logger;
-    
-    private readonly string _resourceName;
-    private readonly int _finalPartNumber;
-    private Uri _lastUri;
+    private readonly ILogger<Loader> _logger = services.GetService<ILogger<Loader>>()
+                                                   ?? new NullLogger<Loader>();
+    private Uri _lastUri = new(initialUri);
     private int _currentPartNumber;
     private int _numberOfSymbols;
-
-    private bool IsLastPart => _currentPartNumber == _finalPartNumber;
     
-    public Loader(string resourceName, int finalPart, string initialUri, IServiceProvider services)
-    {
-        _client = services.GetRequiredService<IHttpClientFactory>()
-            .CreateClient();
-        
-        _logger = services.GetService<ILogger<Loader>>() ?? new NullLogger<Loader>();
-        
-        _resourceName = resourceName;
-        _finalPartNumber = finalPart;
-        _lastUri = new Uri(initialUri);
-        _currentPartNumber = GetPartNumberFromUri(_lastUri);
-    }
-
     public async Task DownloadAsync(string folderToSave)
     {
         _totalRequestTime.Start = DateTime.Now;
         
         CreateDirectoryIfNotExists(folderToSave);
         
-        var pathToFile = $"{folderToSave}/{_resourceName}{ResourceExtension}";
+        var pathToFile = $"{folderToSave}/{resourceName}{resourceExtension}";
         
         await using FileStream destination = new FileStream(pathToFile, FileMode.Create);
-        while (true)
+        for (; _retries < MaxRetries; _retries++)
         {
             try
             {
                 await using var source = await _client.GetStreamAsync(_lastUri);
                 await source.CopyToAsync(destination);
                 
-                _logger.LogInformation(@"Part {partNumber}/{totalParts} was downloaded to ""{pathToFile}""", _currentPartNumber, _finalPartNumber, pathToFile);
-
-                if (IsLastPart)
-                {
-                    _totalRequestTime.End = DateTime.Now;
-                    
-                    var fileInfo = new FileInfo(pathToFile);
-                    var duration = _totalRequestTime.End - _totalRequestTime.Start;
-                    
-                    _logger.LogInformation(@"Resource ""{resourceName}"" was downloaded to ""{pathToFile}"". Resource size = {size} bytes; Total request duration = {duration}",
-                        _resourceName, fileInfo.FullName, fileInfo.Length, duration);
-                        
-                    return;
-                }
-            
-                SetNextPartOfResource();
+                _logger.LogInformation(@"Part {partNumber} was downloaded to ""{pathToFile}""",
+                    _currentPartNumber, pathToFile);
                 
+                _lastUri = GetNextChunkUri(_lastUri);
                 _retries = 0;
+            }
+            catch (HttpRequestException e) when (e.StatusCode is HttpStatusCode.NotFound)
+            {
+                LogEndOfOperation(pathToFile);
+                return;
             }
             catch (HttpRequestException)
             {
-                if (_retries >= 3)
-                    throw;
-
                 _retries++;
-                
-                await Task.Delay(3000);
+                await Task.Delay(DelayMs);
             }
         }
     }
-
-    private void SetNextPartOfResource()
+    
+    private Uri GetNextChunkUri(Uri uri)
     {
-        var leftPart = _lastUri.AbsolutePath;
-        var currentPart = leftPart.Substring(leftPart.LastIndexOf('/') + 1);
+        var uriAbsolutePath = uri.AbsolutePath;
         
-        _lastUri = GetIncrementedUri(currentPart);
-    }
+        var oldPart = GetLastPartOfPath(uriAbsolutePath);
+        
+        var newPart = IncrementPartNumber(oldPart);
+        
+        var newUri = GetUriWithReplacedPart(_lastUri, oldPart, newPart);
 
-    private Uri GetIncrementedUri(string currentPart)
-    {
-        var nextPart = IncrementPartNumber(currentPart);
-        var newUri = GetUriWithReplacedPart(_lastUri, currentPart, nextPart);
-        
         return newUri;
     }
-
+    
+    private string GetLastPartOfPath(string path) 
+        => path.Substring(path.LastIndexOf('/') + 1);
+    
     private string IncrementPartNumber(string part)
     {
-        var oldNumberString = ExtractNumberFromString(part);
-        
+        var oldNumberString = GetChunkNumberFromString(part);
+
         if (_numberOfSymbols == 0)
             _numberOfSymbols = oldNumberString.Length;
-        
+
         var currentNumber = ParseNumberFromString(oldNumberString);
         var nextNumber = currentNumber + 1;
         _currentPartNumber = nextNumber;
-        
-        var resultString = nextNumber.ToString().PadLeft(_numberOfSymbols, '0');
-        
-        return part.Replace(oldNumberString + ResourceExtension, resultString + ResourceExtension);
+
+        var resultString = nextNumber.ToString();
+
+        if (withChunkNumberPadding)
+            resultString = resultString.PadLeft(_numberOfSymbols, '0');
+
+        return part.Replace(oldNumberString + resourceExtension, resultString + resourceExtension);
     }
-
-    private int GetPartNumberFromUri(Uri uri)
-    {
-        var path = uri.AbsolutePath;
-        var partNumberString = GetLastPartOfPath(path);
-        partNumberString = ExtractNumberFromString(partNumberString);
-        var partNumber = ParseNumberFromString(partNumberString);
-
-        return partNumber;
-    }
-
-    private void CreateDirectoryIfNotExists(string folderToSave)
-    {
-        if (!Directory.Exists(folderToSave))
-            Directory.CreateDirectory(folderToSave);
-    }
-
-    private string GetLastPartOfPath(string path)
-        => path.Substring(path.LastIndexOf('/') + 1);
-
-    private string ExtractNumberFromString(string stringPart) 
-        => stringPart.Split('.').First().Split(NumberSeparator).Last();
+    
+    private string GetChunkNumberFromString(string part) 
+        => part.Split('.').First().Split(chunkNumberSeparator).Last();
 
     private int ParseNumberFromString(string stringNumber)
     {
@@ -148,4 +112,22 @@ public class Loader : ILoader
     
     private Uri GetUriWithReplacedPart(Uri uri, string oldPart, string newPart)
         => new(uri.ToString().Replace(oldPart, newPart));
+    
+    private void CreateDirectoryIfNotExists(string folderToSave)
+    {
+        if (!Directory.Exists(folderToSave))
+            Directory.CreateDirectory(folderToSave);
+    }
+
+    private void LogEndOfOperation(string pathToFile)
+    {
+        _totalRequestTime.End = DateTime.Now;
+                    
+        var fileInfo = new FileInfo(pathToFile);
+        var duration = _totalRequestTime.End - _totalRequestTime.Start;
+                    
+        _logger.LogInformation(
+            @"Resource ""{resourceName}"" was downloaded to ""{pathToFile}"". Resource size = {size} bytes; Total request duration = {duration}",
+            resourceName, fileInfo.FullName, fileInfo.Length, duration);
+    }
 }
