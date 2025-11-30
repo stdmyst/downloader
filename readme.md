@@ -8,7 +8,6 @@ Run with arguments:
 
 ```powershell
 dotnet "...\downloader.dll" `
-    " ---> File name <---- " `
-    328 `
-    " ----> Uri <---- "
+    " ---> Parameters file name <---- " `
+    " ----> Output directory name <---- "
 ```
